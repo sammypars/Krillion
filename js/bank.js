@@ -50,25 +50,44 @@
     return kept.length ? kept.join('') : t.join('');
   }
 
+  // Edit distance where swapping two neighbouring letters counts as one slip.
   function lev(a, b, max) {
     if (Math.abs(a.length - b.length) > max) return max + 1;
-    let prev = new Array(b.length + 1);
+    let pp = null, prev = new Array(b.length + 1);
     for (let j = 0; j <= b.length; j++) prev[j] = j;
     for (let i = 1; i <= a.length; i++) {
       const cur = [i];
       let rowMin = i;
       for (let j = 1; j <= b.length; j++) {
         const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-        const v = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+        let v = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+        if (pp && i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) v = Math.min(v, pp[j - 2] + 1);
         cur[j] = v;
         if (v < rowMin) rowMin = v;
       }
       if (rowMin > max) return max + 1;
-      prev = cur;
+      pp = prev; prev = cur;
     }
     return prev[b.length];
   }
-  function allowed(len) { return len <= 4 ? 0 : len <= 8 ? 1 : 2; }
+  // Typos allowed by length: none for 1-3 letters, then 1, 2, and 3 for long names.
+  function allowed(len) { return len <= 3 ? 0 : len <= 7 ? 1 : len <= 12 ? 2 : 3; }
+
+  // A rough "sounds like" key: fushia ~ fuchsia, chiwawa ~ chihuahua, rotwieler ~ rottweiler.
+  function sound(k) {
+    let t = k.replace(/[^a-z]/g, '');
+    if (!t) return '';
+    const first = t[0];
+    t = t.replace(/ph/g, 'f').replace(/ck/g, 'k').replace(/c(?=[eiy])/g, 's').replace(/c/g, 'k').replace(/q/g, 'k')
+      .replace(/x/g, 'ks').replace(/z/g, 's').replace(/dg/g, 'j').replace(/w/g, 'u').replace(/y/g, 'i');
+    t = t[0] + t.slice(1).replace(/h/g, '');
+    // vowel runs keep their first vowel, so banana and banon stay different
+    t = t.replace(/(.)\1+/g, '$1').replace(/([aeiou])[aeiou]+/g, '$1');
+    if (t.length > 3) t = t.replace(/[aeiou]$/, '');
+    return first ? t : '';
+  }
+  const SMALL = new Set(['of', 'the', 'and', 'a', 'an', 'in', 'on', 'de', 'la', 'le', 'di', 'da', 'von', 'van']);
+  const bag = (tk) => tk.filter((w) => !SMALL.has(w) && !FILLER.has(w)).sort().join(' ');
 
   const prompts = [];
   const byId = {};
@@ -104,6 +123,16 @@
       if (p.bareIndex.has(b) && p.bareIndex.get(b) !== a) clash.add(b); else p.bareIndex.set(b, a);
     }
     for (const b of clash) p.bareIndex.delete(b);
+    // "Sounds like" and any-word-order indexes, again only where unambiguous.
+    p.soundIndex = new Map(); p.bagIndex = new Map();
+    const sClash = new Set(), bClash = new Set();
+    for (const a of p.answers) for (const tk of a.aliasToks) {
+      const sk = sound(tk.join(''));
+      if (sk.length >= 4) { if (p.soundIndex.has(sk) && p.soundIndex.get(sk) !== a) sClash.add(sk); else p.soundIndex.set(sk, a); }
+      if (tk.length >= 2) { const bg = bag(tk); if (bg.includes(' ')) { if (p.bagIndex.has(bg) && p.bagIndex.get(bg) !== a) bClash.add(bg); else p.bagIndex.set(bg, a); } }
+    }
+    for (const k of sClash) p.soundIndex.delete(k);
+    for (const k of bClash) p.bagIndex.delete(k);
     prompts.push(p);
     byId[p.id] = p;
   }
@@ -124,7 +153,8 @@
     let best = null, bestD = 99;
     for (const [ak, ans] of map) {
       if (Math.abs(ak.length - k.length) > max + 1) continue;
-      if (allowed(ak.length) < 1 || ak[0] !== k[0]) continue; // typos rarely hit the first letter
+      if (allowed(ak.length) < 1) continue;
+      if (ak[0] !== k[0] && (k.length < 7 || ak[1] !== k[1])) continue; // a wrong first letter only passes on long words
       const d = lev(k, ak, max + 1);
       if (d < bestD || (d === bestD && best && tierRank(ans) < tierRank(best))) { best = ans; bestD = d; }
     }
@@ -154,13 +184,32 @@
     if (f1.best && f1.d <= f1.max && f1.max > 0) return f1.best;
     const f2 = b !== k ? fuzzy(prompt.bareIndex, b) : { best: null, d: 99, max: 0 };
     if (f2.best && f2.d <= f2.max && f2.max > 0) return f2.best;
+    // 3b. any word order: "pisa leaning tower"
+    const gtAll = toks(guess);
+    if (gtAll.length >= 2) { const bg = bag(gtAll); if (prompt.bagIndex.has(bg)) return prompt.bagIndex.get(bg); }
+    // 3c. sounds right even if spelled wrong
+    const sk = sound(b.length >= 4 ? b : k);
+    if (sk.length >= 4) {
+      const sa = prompt.soundIndex.get(sk), cap0 = Math.ceil(k.length * 0.4);
+      if (sa && lev(k, sa.id, cap0) <= cap0) return sa;
+      if (sk.length >= 6) {
+        let best = null, bestD = 2;
+        const cap = Math.ceil(k.length * 0.34);
+        for (const [ak, ans] of prompt.soundIndex) {
+          if (Math.abs(ak.length - sk.length) > 1 || ak[0] !== sk[0] || ak[1] !== sk[1]) continue;
+          const d = lev(sk, ak, 1);
+          if (d < bestD && lev(k, ans.id, cap) <= cap) { best = ans; bestD = d; }
+        }
+        if (best) return best;
+      }
+    }
     // 4. extra words: "pablo picasso", "the mighty mississippi river" -> the longest listed answer inside the guess
     const gt = toks(guess);
     if (gt.length >= 2) {
       let best = null, bestLen = 0;
       for (const a of prompt.answers) for (const at of a.aliasToks) {
         const len = at.join('').length;
-        if (len >= 4 && at.length < gt.length && gt.length - at.length <= 2 && runIn(at, gt) && len > bestLen) { best = a; bestLen = len; }
+        if (len >= 4 && len >= gt.join('').length * 0.5 && at.length < gt.length && gt.length - at.length <= 2 && runIn(at, gt) && len > bestLen) { best = a; bestLen = len; }
       }
       if (best) return best;
     }
@@ -169,7 +218,7 @@
     if (gk.length >= 5) {
       const hits = new Set();
       for (const a of prompt.answers) for (const at of a.aliasToks) {
-        if (at.length > gt.length && runIn(gt, at) && gk.length / at.join('').length >= 0.5) hits.add(a);
+        if (at.length > gt.length && runIn(gt, at) && gk.length / at.join('').length >= 0.45) hits.add(a);
       }
       if (hits.size === 1) return [...hits][0];
     }
@@ -227,5 +276,5 @@
     return shuffle(pool, rnd).slice(0, n);
   }
 
-  window.KBank = { TIERS, ORDER, MISS_EMOJI, BANDS, band, prompts, byId, match, key, norm, dailyPrompts, deeperExamples, shuffle, mulberry };
+  window.KBank = { sound, TIERS, ORDER, MISS_EMOJI, BANDS, band, prompts, byId, match, key, norm, dailyPrompts, deeperExamples, shuffle, mulberry };
 })();
