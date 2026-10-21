@@ -1,0 +1,9 @@
+-- Krillion backend (Supabase project "Krillion", ref vyjgwbkbyesdbuzuczbd).
+-- Already applied as migration "krillion_init". Kept here for reference / re-creation.
+-- Tables: players (private), daily_scores, answer_counts, prompt_plays, endless_scores, suggestions (private).
+-- Reads: anon can SELECT daily_scores, answer_counts, prompt_plays, endless_scores.
+-- Writes: only through SECURITY DEFINER RPCs that check a per-player secret token
+--   register_player, rename_player, submit_daily (one per player per day, 0-700),
+--   submit_endless (rate-limited), suggest_answer.
+-- To review suggested answers:
+--   select prompt_id, answer, count(*) from suggestions group by 1,2 order by 3 desc;
