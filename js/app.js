@@ -259,7 +259,7 @@
       </div>
       <div id="stage">
         <p class="prompt-cat">${esc(p.cat)}</p>
-        <h1 class="prompt-q">${esc(p.q)}</h1>
+        <h1 class="prompt-q" aria-label="${esc(p.q)}">${words(p.q)}</h1>
         <div class="tank" id="tank"><div class="tank-fill" id="tankFill"></div></div>
         <div class="tank-label"><span>Air left</span><b id="timeLeft">${Math.ceil(rec.remaining)}s</b></div>
         <form class="guess" id="guessForm" autocomplete="off">
@@ -308,6 +308,7 @@
     const k = B.key(raw);
     if (rec.tried.some((t) => B.key(t) === k)) { toast('Already tried that one.'); inp.select(); return; }
     const hit = B.match(run.prompt, raw);
+    if (hit && hit.near) { closeCall(inp); return; }
     if (hit) { stopTimer(); endRound(hit, raw); return; }
     rec.tried.push(raw);
     rec.remaining = Math.max(0, rec.remaining - C.wrongPenalty);
@@ -320,6 +321,15 @@
     paintTank();
     if (run.mode === 'daily') save();
     if (rec.remaining <= 0) { stopTimer(); endRound(null); }
+  }
+
+  const words = (s) => s.split(' ').map((w, i) => `<span class="w" aria-hidden="true" style="animation-delay:${i * 45}ms">${esc(w)}</span>`).join(' ');
+  const letters = (s) => [...s].map((ch, i) => `<span class="ch" aria-hidden="true" style="animation-delay:${180 + i * 28}ms">${esc(ch)}</span>`).join('');
+
+  function closeCall(inp) {
+    toast('So close. Check the spelling, no air lost.');
+    FX.sfx.tick();
+    inp.select();
   }
 
   function endRound(hit, typed) {
@@ -337,11 +347,12 @@
     const rect = stage.getBoundingClientRect();
     if (hit) {
       FX.sfx.hit(hit.tier); vibrate(hit.tier === 'k' ? [30, 40, 30, 40, 90] : 25);
-      FX.burst(window.innerWidth / 2, rect.top + 140, hit.tier);
+      const bx = hit.tier === 'k' && window.innerWidth > 760 ? rect.right - 60 : window.innerWidth / 2;
+      FX.burst(bx, rect.top + (hit.tier === 'k' ? 220 : 140), hit.tier);
     } else { FX.sfx.out(); vibrate([60, 40, 60]); }
     FX.setDepth(depthOf(rec.score));
     $('#scoreNow').textContent = fmt(depthOf(rec.score));
-    const pip = app.querySelectorAll('.pip')[rec.results.length - 1]; if (pip) pip.textContent = emojiOf(result);
+    const pip = app.querySelectorAll('.pip')[rec.results.length - 1]; if (pip) { pip.textContent = emojiOf(result); pip.classList.add('hit'); }
 
     const last = rec.results.length >= run.prompts.length;
     const tc = hit ? 'tc-' + hit.tier : 'tc-x';
@@ -351,7 +362,7 @@
       <div class="reveal ${tc}">
         <p class="prompt-cat">${esc(p.q)}</p>
         ${hit ? `<span class="tier-badge"><span class="em">${T[hit.tier].emoji}</span>${esc(T[hit.tier].name)}</span>
-          <h2 class="reveal-answer">${esc(hit.display)}</h2>
+          <h2 class="reveal-answer" aria-label="${esc(hit.display)}">${letters(hit.display)}</h2>
           <p class="reveal-pts">+${T[hit.tier].pts} points, ${T[hit.tier].pts * 4} m deeper</p>
           <p class="reveal-blurb">${esc(T[hit.tier].blurb)}</p>`
         : `<span class="tier-badge"><span class="em">${B.MISS_EMOJI}</span>Out of air</span>
@@ -563,7 +574,7 @@
       </div>
       <div id="stage">
         <p class="prompt-cat">${esc(p.cat)}</p>
-        <h1 class="prompt-q">${esc(p.q)}</h1>
+        <h1 class="prompt-q" aria-label="${esc(p.q)}">${words(p.q)}</h1>
         <div class="tank" id="tank"><div class="tank-fill" id="tankFill"></div></div>
         <div class="tank-label"><span>Air left</span><span class="endless-air"><b id="timeLeft">${Math.ceil(run.air)}s</b><span id="gain"></span></span></div>
         <form class="guess" id="guessForm" autocomplete="off">
@@ -599,6 +610,7 @@
     const k = B.key(raw);
     if (run.tried.includes(k)) { toast('Already tried that one.'); return; }
     const hit = B.match(run.prompt, raw);
+    if (hit && hit.near) { closeCall(inp); return; }
     if (!hit) {
       run.tried.push(k);
       run.air = Math.max(0, run.air - 2);
@@ -680,7 +692,7 @@
   function showHelp() {
     openModal('How to dive', `<div class="help">
       <p>Every day at midnight UTC there are seven new prompts, the same for everyone. Name anything that fits. One answer per prompt counts, so make it a deep one.</p>
-      <p>You get ${C.roundSeconds} seconds of air per prompt. A wrong or unlisted answer costs ${C.wrongPenalty} seconds, so guessing is fair game. Spelling doesn’t need to be perfect.</p>
+      <p>You get ${C.roundSeconds} seconds of air per prompt. A wrong or unlisted answer costs ${C.wrongPenalty} seconds, so guessing is fair game. Spelling doesn’t need to be perfect, extra words like “Mount” or “cheese” are ignored, and if you’re one letter off you’ll get a nudge instead of a penalty.</p>
       <h3>How deep each answer sends you</h3>
       ${tierList()}
       <p>Each point is 4 metres. A perfect dive of seven One in a Krillion answers reaches 2,800 m.</p>

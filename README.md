@@ -14,7 +14,7 @@ Play: https://sammypars.github.io/Krillion/
 
 ## Files
 - `index.html`, `styles.css` — page and design
-- `js/prompts-a.js`, `js/prompts-b.js` — the answer bank (65 prompts, ~9,000 answers)
+- `js/prompts-a.js`, `js/prompts-b.js`, `js/prompts-c.js` — the answer bank (85 prompts, ~12,500 answers; part C is the niche pack)
 - `js/bank.js` — answer matching (accents, plurals, typos) and daily prompt selection
 - `js/app.js` — game flow, screens, history, leaderboards
 - `js/fx.js` — ocean, particles, sounding line, synthesized sound
@@ -27,4 +27,4 @@ Add an object to either prompts file:
 { id: 'unique-id', q: 'Name a …', cat: 'Food & drink',
   p: 'obvious;answers', c: 'the famous clever one', s: '…', r: '…', d: '…', k: 'the single rarest' }
 ```
-Answers are `;`-separated, aliases `/`-separated. Note: changing the number of prompts reshuffles which prompts appear on future days (and today's for anyone who hasn't started).
+Answers are `;`-separated, aliases `/`-separated. Changing the number of prompts reshuffles future days. Days already played are pinned in `PINNED` in `js/bank.js`; add the day's ids there before adding prompts if you want to freeze it.
