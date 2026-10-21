@@ -2,7 +2,7 @@
 
 A daily trivia dive where the obvious answer barely counts. Seven prompts a day, the same for everyone; rarer answers sink you deeper.
 
-Play: https://sammypars.github.io/krillion/
+Play: https://sammypars.github.io/Krillion/
 
 ## How it plays
 - **Daily dive**: 7 prompts, 25 s of air each, wrong guesses cost 3 s. Resets at midnight UTC.
