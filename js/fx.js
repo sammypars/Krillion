@@ -208,6 +208,154 @@
     c.restore();
   }
 
+  /* ---------------- big scenery ---------------- */
+  const whale = { x: -600, y: 0, t: 0, next: 4 };
+  const manta = { x: -300, y: 0, t: 0, next: 12 };
+  function humpback(c, x, y, s, t, alpha) {
+    // a far-off humpback: long body, knobbly head, very long pectoral fins, flukes that beat slowly
+    c.save(); c.translate(x, y); c.scale(-s, s); c.globalAlpha = alpha; // swims right-to-left, head first
+    const beat = Math.sin(t * 0.9);
+    c.fillStyle = 'rgba(4,26,44,.9)';
+    c.beginPath();
+    c.moveTo(150, 0);                                   // rostrum
+    c.bezierCurveTo(140, -26, 60, -40, -20, -32);       // back
+    c.bezierCurveTo(-90, -24, -150, -10, -205, -4 + beat * 6);
+    c.lineTo(-210, 4 + beat * 6);
+    c.bezierCurveTo(-150, 12, -80, 26, 0, 30);          // belly with throat grooves
+    c.bezierCurveTo(70, 32, 130, 22, 150, 0);
+    c.fill();
+    // flukes
+    c.save(); c.translate(-210, beat * 6); c.rotate(beat * 0.25);
+    c.beginPath(); c.moveTo(0, 0); c.bezierCurveTo(-20, -30, -55, -42, -70, -36); c.bezierCurveTo(-50, -18, -30, -4, -18, 0);
+    c.bezierCurveTo(-30, 4, -50, 18, -70, 36); c.bezierCurveTo(-55, 42, -20, 30, 0, 0); c.fill();
+    c.restore();
+    // pectoral fin, a third of the body length, with a slow stroke
+    c.save(); c.translate(40, 20); c.rotate(0.5 + beat * 0.15);
+    c.beginPath(); c.moveTo(0, 0); c.bezierCurveTo(-20, 30, -60, 70, -110, 88); c.bezierCurveTo(-80, 60, -30, 20, -16, -4); c.fill();
+    c.restore();
+    // throat grooves catching a little light
+    c.strokeStyle = 'rgba(120,190,210,.14)'; c.lineWidth = 2;
+    for (let i = 0; i < 5; i++) { c.beginPath(); c.moveTo(130 - i * 4, 8 + i * 3); c.quadraticCurveTo(60, 22 + i * 2, 0, 24 + i * 1.2); c.stroke(); }
+    c.restore();
+  }
+  function mantaRay(c, x, y, s, t, alpha) {
+    c.save(); c.translate(x, y); c.scale(s, s); c.globalAlpha = alpha;
+    const flap = Math.sin(t * 1.6);
+    c.fillStyle = 'rgba(3,20,36,.92)';
+    c.beginPath();
+    c.moveTo(40, 0);
+    c.bezierCurveTo(20, -10 - flap * 10, -10, -60 - flap * 30, -30, -90 - flap * 40);
+    c.bezierCurveTo(-34, -50, -50, -12, -60, 0);
+    c.bezierCurveTo(-50, 12, -34, 50, -30, 90 + flap * 40);
+    c.bezierCurveTo(-10, 60 + flap * 30, 20, 10 + flap * 10, 40, 0);
+    c.fill();
+    c.strokeStyle = 'rgba(3,20,36,.9)'; c.lineWidth = 2;
+    c.beginPath(); c.moveTo(-60, 0); c.quadraticCurveTo(-110, 4 + flap * 4, -150, 2); c.stroke(); // tail
+    c.beginPath(); c.moveTo(40, -8); c.lineTo(52, -16); c.moveTo(40, 8); c.lineTo(52, 16); c.stroke(); // cephalic fins
+    c.restore();
+  }
+  function lightShafts(c, t, alpha) {
+    if (alpha <= 0.01) return;
+    c.save(); c.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < 6; i++) {
+      const x0 = W * (i / 5) + Math.sin(t * 0.13 + i * 1.7) * 60;
+      const w = 50 + (i % 3) * 40;
+      const g = c.createLinearGradient(0, 0, 0, H * 0.85);
+      g.addColorStop(0, `rgba(200,250,255,${0.09 * alpha})`); g.addColorStop(1, 'rgba(200,250,255,0)');
+      c.fillStyle = g;
+      c.beginPath(); c.moveTo(x0, -10); c.lineTo(x0 + w, -10); c.lineTo(x0 + w * 2.4 - 180, H * 0.85); c.lineTo(x0 - 180, H * 0.85); c.fill();
+    }
+    c.restore();
+  }
+  const vents = [];
+  function seafloor(c, t, amt) {
+    if (amt <= 0.01) return;
+    const base = H + 10 - amt * Math.min(170, H * 0.22);
+    c.save();
+    // rock silhouette with a faint rim light from the vents
+    c.fillStyle = '#01050b';
+    c.beginPath(); c.moveTo(0, H);
+    for (let x = 0; x <= W + 20; x += 20) c.lineTo(x, base + Math.sin(x * 0.013) * 18 + Math.sin(x * 0.047) * 9 + (x % 140 < 20 ? -10 : 0));
+    c.lineTo(W, H); c.fill();
+    if (!vents.length || vents.W !== W) {
+      vents.length = 0; vents.W = W;
+      for (const fx of W < 700 ? [0.78] : [0.14, 0.72, 0.9]) vents.push({ x: W * fx, h: rand(50, 90), smoke: [] });
+    }
+    for (const v of vents) {
+      const vy = base + Math.sin(v.x * 0.013) * 18;
+      // chimney
+      c.fillStyle = '#060b10';
+      c.beginPath(); c.moveTo(v.x - 16, vy + 4); c.lineTo(v.x - 6, vy - v.h); c.lineTo(v.x + 6, vy - v.h); c.lineTo(v.x + 18, vy + 4); c.fill();
+      const glow = c.createRadialGradient(v.x, vy - v.h, 1, v.x, vy - v.h, 26);
+      glow.addColorStop(0, `rgba(255,150,70,${0.55 * amt})`); glow.addColorStop(1, 'rgba(255,120,40,0)');
+      c.fillStyle = glow; c.beginPath(); c.arc(v.x, vy - v.h, 26, 0, TAU); c.fill();
+      // black smoker plume
+      if (Math.random() < 0.5) v.smoke.push({ x: v.x + rand(-3, 3), y: vy - v.h, r: rand(4, 8), a: 0.5, vx: rand(-0.2, 0.2) });
+      for (let i = v.smoke.length - 1; i >= 0; i--) {
+        const p = v.smoke[i]; p.y -= 0.7; p.x += p.vx + Math.sin(t + p.y * 0.05) * 0.15; p.r += 0.12; p.a -= 0.004;
+        if (p.a <= 0) { v.smoke.splice(i, 1); continue; }
+        c.fillStyle = `rgba(20,24,28,${p.a * amt})`; c.beginPath(); c.arc(p.x, p.y, p.r, 0, TAU); c.fill();
+      }
+      // giant tube worms with red plumes
+      for (let k = 0; k < 6; k++) {
+        const wx = v.x - 40 + k * 15 + (k > 2 ? 24 : 0), wy = vy + 2, wh = 24 + (k * 7) % 20;
+        const sway = Math.sin(t * 1.3 + k) * 3;
+        c.strokeStyle = 'rgba(220,220,210,.5)'; c.lineWidth = 3;
+        c.beginPath(); c.moveTo(wx, wy); c.quadraticCurveTo(wx + sway * 0.5, wy - wh / 2, wx + sway, wy - wh); c.stroke();
+        c.fillStyle = `rgba(230,40,60,${0.85 * amt})`;
+        c.beginPath(); c.ellipse(wx + sway, wy - wh - 4, 4.5, 6, 0, 0, TAU); c.fill();
+      }
+    }
+    c.restore();
+  }
+
+  // descent rush: streaks race upward when you sink
+  let rush = 0;
+  const streaks = [];
+  function drawRush(c, dt) {
+    if (rush <= 0.01) { streaks.length = 0; return; }
+    while (streaks.length < 50 * rush) streaks.push({ x: Math.random() * W, y: Math.random() * H, l: rand(20, 90), v: rand(12, 30) });
+    c.save(); c.strokeStyle = 'rgba(210,250,255,.5)'; c.lineCap = 'round';
+    for (const p of streaks) {
+      p.y -= p.v * rush * dt;
+      if (p.y < -p.l) { p.y = H + p.l; p.x = Math.random() * W; }
+      c.globalAlpha = rush * 0.55; c.lineWidth = 1.4;
+      c.beginPath(); c.moveTo(p.x, p.y); c.lineTo(p.x, p.y + p.l * rush); c.stroke();
+    }
+    c.restore();
+    rush = Math.max(0, rush - 0.018 * dt);
+  }
+
+  // bioluminescent plankton that light up where you touch
+  const sparks = [];
+  let lastPt = null;
+  window.addEventListener('pointermove', (e) => {
+    if (reduce.matches) return;
+    const p = { x: e.clientX, y: e.clientY };
+    const d = lastPt ? Math.hypot(p.x - lastPt.x, p.y - lastPt.y) : 0;
+    lastPt = p;
+    const n = Math.min(4, Math.floor(d / 14));
+    for (let i = 0; i < n && sparks.length < 260; i++) sparks.push({ x: p.x + rand(-10, 10), y: p.y + rand(-10, 10), vx: rand(-0.3, 0.3), vy: rand(-0.5, 0.1), life: 1, r: rand(0.8, 2.2) });
+  }, { passive: true });
+  window.addEventListener('pointerdown', (e) => {
+    if (reduce.matches) return;
+    for (let i = 0; i < 18 && sparks.length < 260; i++) { const a = rand(0, TAU), sp = rand(0.5, 2.2); sparks.push({ x: e.clientX, y: e.clientY, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 1, r: rand(1, 2.4) }); }
+  }, { passive: true });
+  function drawSparks(c, dt) {
+    if (!sparks.length) return;
+    const glow = 0.35 + depthT * 0.65;
+    c.save(); c.globalCompositeOperation = 'lighter';
+    for (let i = sparks.length - 1; i >= 0; i--) {
+      const p = sparks[i];
+      p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.96; p.vy *= 0.96; p.life -= 0.016 * dt;
+      if (p.life <= 0) { sparks.splice(i, 1); continue; }
+      const g = c.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r * 5);
+      g.addColorStop(0, `rgba(170,255,245,${p.life * glow})`); g.addColorStop(1, 'rgba(124,243,230,0)');
+      c.fillStyle = g; c.beginPath(); c.arc(p.x, p.y, p.r * 5, 0, TAU); c.fill();
+    }
+    c.restore();
+  }
+
   /* ---------------- events: bubbles, divers, swarms ---------------- */
   const bubbles = [];
   const divers = [];
@@ -291,6 +439,20 @@
     document.documentElement.style.setProperty('--depth', depthT.toFixed(4));
     ctx.clearRect(0, 0, W, H);
 
+    lightShafts(ctx, clock, 1 - depthT * 2.6);
+    // a humpback passes in the shallows now and then, a manta in the mid-water
+    if (!still) {
+      whale.t += dt / 60; manta.t += dt / 60;
+      if (whale.x < -500 && (whale.next -= dt / 60) <= 0) { whale.x = W + 420; whale.y = rand(H * 0.25, H * 0.6); whale.next = rand(25, 45); }
+      if (whale.x > -500) whale.x -= 0.32 * dt;
+      if (manta.x < -260 && (manta.next -= dt / 60) <= 0) { manta.x = W + 200; manta.y = rand(H * 0.3, H * 0.75); manta.next = rand(18, 30); }
+      if (manta.x > -260) manta.x -= 0.7 * dt;
+    }
+    const wa = Math.max(0, 1 - depthT / 0.32) * 0.5;
+    if (wa > 0.01 && whale.x > -500) humpback(ctx, whale.x, whale.y + Math.sin(whale.t * 0.4) * 10, W < 700 ? 0.7 : 1.15, whale.t, wa);
+    const ma = Math.max(0, 1 - Math.abs(depthT - 0.42) / 0.22) * 0.55;
+    if (ma > 0.01 && manta.x > -260) mantaRay(ctx, manta.x, manta.y + Math.sin(manta.t * 0.8) * 14, W < 700 ? 0.45 : 0.7, manta.t, ma);
+
     // marine snow drifts down in the deep; bubbles rise near the surface
     for (const p of motes) {
       if (!still) {
@@ -317,6 +479,7 @@
     }
     const la = Math.max(0, Math.min(1, (depthT - 0.7) / 0.2));
     if (la > 0.01 && W > 700) anglerLure(ctx, clock, la);
+    seafloor(ctx, clock, Math.max(0, Math.min(1, (depthT - 0.78) / 0.18)));
 
     // the ambient school
     for (const k of school) {
@@ -357,6 +520,8 @@
     krill(ctx, markerPos.x, markerPos.y, Math.PI / 2 + sway, W < 720 ? 0.36 : 0.62, clock, { beat: sinking ? 2 : 0.6, glow: 0.5 + depthT * 0.5, flip: sinking ? 0.15 : 0 });
 
     stepDivers(still ? 0 : dt, clock);
+    drawSparks(ctx, still ? 0 : dt);
+    if (!still) drawRush(ctx, dt);
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
@@ -381,6 +546,7 @@
   }
   function setDepth(metres, opts = {}) {
     const m = Math.max(0, Math.min(MAX_DEPTH, metres));
+    if (m - animTo > 30 && !opts.instant) rush = Math.min(1, 0.35 + (m - animTo) / 500);
     depthTarget = Math.pow(m / MAX_DEPTH, 0.75);
     marker.style.top = (m / MAX_DEPTH) * 100 + '%';
     animFrom = shownDepth; animTo = Math.round(m); animStart = performance.now();

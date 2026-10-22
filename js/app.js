@@ -20,6 +20,8 @@
     s.daily = s.daily || {};
     s.endless = s.endless || { best: 0, runs: [] };
     s.practice = s.practice || { played: 0 };
+    s.modes = s.modes || {};   // per-mode bests and play counts for the extra modes
+    s.ach = s.ach || {};       // earned badges: id -> timestamp
     return s;
   }
   function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { /* ignore */ } }
@@ -36,6 +38,124 @@
   const niceDate = (day) => new Date(day + 'T12:00:00Z').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
   const depthOf = (score) => score * 4;
   const emojiOf = (r) => (r.tier ? T[r.tier].emoji : B.MISS_EMOJI);
+
+  /* ---------------- badges ---------------- */
+  const BADGES = [
+    { id: 'first', icon: '🤿', name: 'First dive', how: 'Finish a daily dive.' },
+    { id: 'krill', icon: '🦐', name: 'One in a Krillion', how: 'Find the rarest answer on any prompt.' },
+    { id: 'krill3', icon: '🦐🦐🦐', name: 'Swarm', how: 'Three One in a Krillion answers in one dive.' },
+    { id: 'clean', icon: '🫧', name: 'Clean dive', how: 'Answer all seven daily prompts.' },
+    { id: 'thermo', icon: '🌡️', name: 'Thermocline', how: 'Reach 900 m in a daily dive.' },
+    { id: 'trench', icon: '🕳️', name: 'Trench diver', how: 'Reach 2,100 m in a daily dive.' },
+    { id: 'plankton', icon: '🦠', name: 'Bottom feeder… at the top', how: 'Finish a daily dive with only Plankton answers.' },
+    { id: 'streak3', icon: '🔥', name: 'Three-day streak', how: 'Dive three days in a row.' },
+    { id: 'streak7', icon: '🌊', name: 'Week underwater', how: 'Dive seven days in a row.' },
+    { id: 'endless500', icon: '♾️', name: 'Long breath', how: 'Score 500 in Endless.' },
+    { id: 'sonar10', icon: '📡', name: 'Full sweep', how: 'Find 10 answers in one Sonar Sweep.' },
+    { id: 'blitz12', icon: '⚡', name: 'Rapid fire', how: 'Clear 12 prompts in one Blitz.' },
+    { id: 'abyss5', icon: '🦑', name: 'Pressure proof', how: 'Survive 5 prompts in the Abyss.' },
+    { id: 'party', icon: '🎉', name: 'Crew dive', how: 'Finish a Pass & Play game.' },
+    { id: 'challenge', icon: '🤝', name: 'Throw down', how: 'Send or play a challenge link.' },
+    { id: 'niche', icon: '🧭', name: 'Deep specialist', how: 'Hit a Deep Cut or better on a Deep cuts, Rowing or Deep water prompt.' },
+  ];
+  function award(id) {
+    if (S.ach[id]) return;
+    const b = BADGES.find((x) => x.id === id); if (!b) return;
+    S.ach[id] = Date.now(); save();
+    const el = document.createElement('div');
+    el.className = 'badge-pop'; el.setAttribute('role', 'status');
+    el.innerHTML = `<span class="bp-icon">${b.icon}</span><span><small>Badge earned</small><b>${esc(b.name)}</b></span>`;
+    document.body.appendChild(el);
+    FX.sfx.hit('r');
+    setTimeout(() => el.classList.add('out'), 3200);
+    setTimeout(() => el.remove(), 3800);
+  }
+  function checkNiche(p, tier) { if ((tier === 'd' || tier === 'k') && /Deep cuts|Rowing|Deep water/.test(p.cat)) award('niche'); }
+
+  /* ---------------- depth zones ---------------- */
+  const ZONE_LINES = {
+    Schooler: 'The light is going blue. Schools of fish hang here in the gloom.',
+    Thermocline: 'The water gets cold fast. Only the curious keep sinking.',
+    'Deep Cut': 'No sunlight reaches this far. Everything here makes its own.',
+    Trench: 'Pressure enough to crush a car. Almost nobody gets here.',
+  };
+  function zoneCard(fromDepth, toDepth) {
+    const a0 = B.band(fromDepth), a1 = B.band(toDepth);
+    if (a0 === a1 || B.BANDS.indexOf(a1) < B.BANDS.indexOf(a0)) return;
+    document.querySelectorAll('.zone-card').forEach((z) => z.remove());
+    const el = document.createElement('div');
+    el.className = 'zone-card'; el.setAttribute('aria-hidden', 'true');
+    el.innerHTML = `<small>Entering</small><b>${esc(a1.name)}</b><span>${fmt(a1.min)} m. ${esc(ZONE_LINES[a1.name] || '')}</span>`;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 2400);
+  }
+  function shake(strength = 1) {
+    document.body.style.setProperty('--shake', strength);
+    document.body.classList.remove('shaking'); void document.body.offsetWidth; document.body.classList.add('shaking');
+    setTimeout(() => document.body.classList.remove('shaking'), 700);
+  }
+  function ripple(el) {
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const d = document.createElement('span'); d.className = 'sonar-ripple';
+    d.style.left = r.left + r.width / 2 + 'px'; d.style.top = r.top + r.height / 2 + 'px';
+    document.body.appendChild(d); setTimeout(() => d.remove(), 900);
+  }
+
+  /* ---------------- dive profile chart ---------------- */
+  function profileSvg(results, opts = {}) {
+    const pts = [0]; let acc = 0;
+    for (const r of results) { acc += depthOf(r.pts); pts.push(acc); }
+    const W = 640, H = 230, padL = 52, padR = 18, padT = 16, padB = 26;
+    const maxD = Math.max(900, acc * 1.15);
+    const x = (i) => padL + (i / Math.max(1, results.length)) * (W - padL - padR);
+    const y = (d) => padT + (d / maxD) * (H - padT - padB);
+    const bandRects = B.BANDS.map((b, i) => {
+      const top = b.min, bot = B.BANDS[i + 1] ? B.BANDS[i + 1].min : 99999;
+      if (top > maxD) return '';
+      return `<rect x="${padL}" y="${y(top)}" width="${W - padL - padR}" height="${Math.max(0, y(Math.min(bot, maxD)) - y(top))}" fill="${bandColor(top)}" opacity="${0.05 + i * 0.03}"/>
+        <text x="${padL - 8}" y="${y(top) + 13}" text-anchor="end" class="pf-lab">${fmt(top)}</text>`;
+    }).join('');
+    // dive computers draw descents as steps: hold depth while answering, then drop
+    let d = `M ${x(0)} ${y(0)}`;
+    for (let i = 1; i < pts.length; i++) d += ` L ${x(i) - 14} ${y(pts[i - 1])} L ${x(i)} ${y(pts[i])}`;
+    const marks = results.map((r, i) => `<g class="pf-mark" style="animation-delay:${(opts.anim ? 0.25 : 0) + i * 0.18}s"><circle cx="${x(i + 1)}" cy="${y(pts[i + 1])}" r="5" class="pf-dot ${r.tier ? 'tc-' + r.tier : 'tc-x'}"/><text x="${x(i + 1)}" y="${y(pts[i + 1]) - 10}" text-anchor="middle" class="pf-em">${emojiOf(r)}</text></g>`).join('');
+    return `<svg class="profile ${opts.anim ? 'anim' : ''}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Dive profile reaching ${fmt(acc)} metres">
+      ${bandRects}<line x1="${padL}" y1="${padT}" x2="${W - padR}" y2="${padT}" class="pf-surface"/>
+      <path d="${d}" class="pf-line" pathLength="1"/>${marks}</svg>`;
+  }
+
+  /* ---------------- share image ---------------- */
+  async function shareImage(title, depth, results, sub) {
+    const c = document.createElement('canvas'); c.width = 1080; c.height = 1350;
+    const g = c.getContext('2d');
+    const t = Math.min(1, Math.pow(depth / 2800, 0.75));
+    const mix = (a, b) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
+    const top = mix([54, 194, 200], [6, 22, 40]), bot = mix([10, 42, 69], [1, 6, 14]);
+    const bg = g.createLinearGradient(0, 0, 0, 1350);
+    bg.addColorStop(0, `rgb(${top})`); bg.addColorStop(1, `rgb(${bot})`);
+    g.fillStyle = bg; g.fillRect(0, 0, 1080, 1350);
+    for (let i = 0; i < 160; i++) { g.fillStyle = `rgba(220,245,250,${Math.random() * 0.35})`; g.beginPath(); g.arc(Math.random() * 1080, Math.random() * 1350, Math.random() * 3, 0, 7); g.fill(); }
+    for (let i = 0; i < 9; i++) FX.krill(g, 140 + Math.random() * 800, 820 + Math.random() * 380, Math.random() * 0.6 - 0.3, 1.2 + Math.random() * 1.6, Math.random() * 9, { glow: t, alpha: 0.55 });
+    g.fillStyle = '#eaf7f6'; g.textBaseline = 'top';
+    g.font = '800 54px "Bricolage Grotesque", system-ui, sans-serif'; g.fillText('Krillion', 80, 80);
+    g.font = '600 40px "Bricolage Grotesque", system-ui, sans-serif'; g.fillStyle = 'rgba(234,247,246,.75)'; g.fillText(title, 80, 150);
+    g.fillStyle = '#eaf7f6'; g.font = '800 230px "Bricolage Grotesque", system-ui, sans-serif';
+    g.fillText(fmt(depth), 72, 250);
+    const w = g.measureText(fmt(depth)).width;
+    g.font = '800 90px "Bricolage Grotesque", system-ui, sans-serif'; g.fillStyle = 'rgba(234,247,246,.7)'; g.fillText('m', 92 + w, 380);
+    g.font = '700 56px "Bricolage Grotesque", system-ui, sans-serif'; g.fillStyle = '#7cf3e6'; g.fillText(sub, 80, 510);
+    g.font = '96px system-ui, "Apple Color Emoji", "Segoe UI Emoji", sans-serif'; g.fillText(results.map(emojiOf).join(' '), 76, 610);
+    g.font = '500 34px "Atkinson Hyperlegible", system-ui, sans-serif'; g.fillStyle = 'rgba(234,247,246,.8)'; g.fillText(SITE.replace(/^https?:\/\//, ''), 80, 1250);
+    const blob = await new Promise((r) => c.toBlob(r, 'image/png'));
+    const file = new File([blob], 'krillion-dive.png', { type: 'image/png' });
+    try {
+      if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], text: `${title}: ${fmt(depth)} m` }); return; }
+    } catch (e) { if (e && e.name === 'AbortError') return; }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'krillion-dive.png'; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    toast('Saved your dive card.');
+  }
 
   function toast(msg, ms = 2200) {
     const el = document.createElement('div');
@@ -138,6 +258,7 @@
 
   function home() {
     run = null;
+    document.body.classList.remove('abyss-mode');
     const d = today();
     const rec = S.daily[d];
     const st = stats();
@@ -169,11 +290,14 @@
 
     screen(`
       <div class="home-hero">${hero}</div>
-      <div class="modes">
-        <button class="mode" id="goEndless"><h3>Endless</h3><p>One tank of air. Rare answers refill it. Go until you run dry.</p>
-          ${S.endless.best ? `<div class="best">Your best: ${fmt(S.endless.best)} pts</div>` : ''}</button>
-        <button class="mode" id="goPacks"><h3>Practice packs</h3><p>Pick a topic and dive as often as you like. No leaderboard.</p></button>
+      ${challengeBanner()}
+      <h2 class="section-title">More ways to dive</h2>
+      <div class="modes">${allModes().map((m, i) => `<button class="mode mode-${m.id}" data-mode="${m.id}" style="--i:${i}">
+          <span class="mode-art" aria-hidden="true">${m.art || ''}</span>
+          <h3>${esc(m.title)}</h3><p>${esc(m.blurb)}</p>
+          ${m.best && m.best() ? `<div class="best">${esc(m.best())}</div>` : ''}</button>`).join('')}
       </div>
+      ${badgeStrip()}
       ${st.played ? `<div class="panel"><div class="panel-head"><h3>Your dives</h3><button class="linkish" data-hist>Full history</button></div>
         <div class="stats-row">
           <div class="stat"><b>${st.played}</b><span>played</span></div>
@@ -189,8 +313,10 @@
     const how = $('#howTo'); if (how) how.onclick = showHelp;
     const see = $('#seeResults'); if (see) see.onclick = () => summary(d);
     const sh = $('#shareHome'); if (sh) sh.onclick = () => share(d);
-    $('#goEndless').onclick = startEndless;
-    $('#goPacks').onclick = packs;
+    app.querySelectorAll('[data-mode]').forEach((b) => b.onclick = () => allModes().find((m) => m.id === b.dataset.mode).start());
+    const ch = $('#playChallenge'); if (ch) ch.onclick = () => window.KModes.challenge.play(pendingChallenge);
+    const chx = $('#dismissChallenge'); if (chx) chx.onclick = () => { pendingChallenge = null; history.replaceState(null, '', location.pathname); home(); };
+    const bs = $('#badgeStrip'); if (bs) bs.onclick = showHistory;
     const hb = app.querySelector('[data-hist]'); if (hb) hb.onclick = showHistory;
     app.querySelector('[data-board]').onclick = () => showBoard();
     clearInterval(clockTimer);
@@ -255,7 +381,7 @@
     screen(`
       <div class="game-top">
         <div class="pips" aria-label="Prompt ${i + 1} of ${run.prompts.length}">${pips}</div>
-        <div class="score-now"><span id="scoreNow">${fmt(depthOf(rec.score))}</span> m <small>${run.mode === 'practice' ? esc(run.cat) : 'deep'}</small></div>
+        <div class="score-now"><span id="scoreNow">${fmt(depthOf(rec.score))}</span> m <small>${esc(run.label || (run.mode === 'practice' ? run.cat : 'deep'))}</small></div>
       </div>
       <div id="stage">
         <p class="prompt-cat">${esc(p.cat)}</p>
@@ -308,6 +434,7 @@
     const k = B.key(raw);
     if (rec.tried.some((t) => B.key(t) === k)) { toast('Already tried that one.'); inp.select(); return; }
     const hit = B.match(run.prompt, raw);
+    ripple(inp);
     if (hit && hit.near) { closeCall(inp); return; }
     if (hit) { stopTimer(); endRound(hit, raw); return; }
     rec.tried.push(raw);
@@ -338,7 +465,10 @@
     run.phase = 'reveal';
     const result = { pid: p.id, tier: hit ? hit.tier : null, answer: hit ? hit.display : null, key: hit ? hit.id : null, typed: typed || null, pts: hit ? T[hit.tier].pts : 0, tried: rec.tried.slice() };
     rec.results.push(result);
+    const before = depthOf(rec.score);
     rec.score += result.pts;
+    zoneCard(before, depthOf(rec.score));
+    if (hit) checkNiche(p, hit.tier);
     rec.remaining = C.roundSeconds;
     rec.tried = [];
     if (run.mode === 'daily') save();
@@ -349,6 +479,7 @@
       FX.sfx.hit(hit.tier); vibrate(hit.tier === 'k' ? [30, 40, 30, 40, 90] : 25);
       const bx = hit.tier === 'k' && window.innerWidth > 760 ? rect.right - 60 : window.innerWidth / 2;
       FX.burst(bx, rect.top + (hit.tier === 'k' ? 220 : 140), hit.tier);
+      if (hit.tier === 'k') { shake(1.4); award('krill'); } else if (hit.tier === 'd') shake(0.6);
     } else { FX.sfx.out(); vibrate([60, 40, 60]); }
     FX.setDepth(depthOf(rec.score));
     $('#scoreNow').textContent = fmt(depthOf(rec.score));
@@ -406,12 +537,28 @@
   }
 
   async function finishDive() {
+    if (run.onFinish) { const r = run; run = null; return r.onFinish(r); }
     if (run.mode === 'practice') { S.practice.played++; save(); return practiceSummary(); }
     const rec = run.rec;
     rec.status = 'done';
     rec.finishedAt = Date.now();
     save();
     summary(run.day, true);
+    dailyBadges(rec);
+  }
+
+  function dailyBadges(rec) {
+    const depth = depthOf(rec.score), st = stats();
+    const later = [];
+    later.push('first');
+    if (rec.results.filter((r) => r.tier === 'k').length >= 3) later.push('krill3');
+    if (rec.results.every((r) => r.tier)) later.push('clean');
+    if (rec.results.every((r) => r.tier === 'p')) later.push('plankton');
+    if (depth >= 900) later.push('thermo');
+    if (depth >= 2100) later.push('trench');
+    if (st.streak >= 3) later.push('streak3');
+    if (st.streak >= 7) later.push('streak7');
+    later.filter((id) => !S.ach[id]).forEach((id, i) => setTimeout(() => award(id), 1800 + i * 1400));
   }
 
   async function submitDaily(day) {
@@ -466,9 +613,11 @@
         <p class="sum-rank" id="sumRank">${rankLine(rec)}</p>
         <div class="sum-actions">
           <button class="btn krill" id="shareBtn">Share your dive</button>
+          <button class="btn ghost" id="imgBtn">Save dive card</button>
           <button class="btn ghost" id="endlessBtn">Keep diving in Endless</button>
         </div>
       </div>
+      <div class="panel profile-panel"><div class="panel-head"><h3>Dive profile</h3><span class="faint">like a dive computer log</span></div>${profileSvg(rec.results, { anim: fresh })}</div>
       <div class="panel"><div class="panel-head"><h3>Your seven answers</h3><span class="faint num">${fmt(rec.score)} pts</span></div>
         ${roundsList(rec.results, [])}</div>
       <div class="panel"><div class="panel-head"><h3>Deepest today</h3><button class="linkish" id="allBoards">All leaderboards</button></div>
@@ -476,6 +625,7 @@
       <p class="reset-note" style="text-align:center;margin-top:22px">Next dive in <b class="num" id="clock">${untilReset()}</b></p>
     `);
     $('#shareBtn').onclick = () => share(day);
+    $('#imgBtn').onclick = () => shareImage(`Dive #${diveNo(day)}`, depth, rec.results, `The ${b.name}`);
     $('#endlessBtn').onclick = startEndless;
     $('#allBoards').onclick = () => showBoard('daily', day);
     clearInterval(clockTimer);
@@ -526,6 +676,7 @@
         <p class="sum-emoji">${rec.results.map(emojiOf).join('')}</p>
         <div class="sum-actions"><button class="btn krill" id="again">Dive ${esc(cat)} again</button><button class="btn ghost" id="pickPack">Pick another pack</button></div>
       </div>
+      <div class="panel profile-panel">${profileSvg(rec.results, { anim: true })}</div>
       <div class="panel">${roundsList(rec.results, ps)}</div>`);
     countUp($('#countUp'), depth);
     $('#again').onclick = () => startPractice(cat);
@@ -624,6 +775,8 @@
     const tier = T[hit.tier];
     run.phase = 'reveal';
     run.score += tier.pts; run.cleared++;
+    checkNiche(run.prompt, hit.tier);
+    if (hit.tier === 'k') { shake(1); award('krill'); }
     run.air = Math.min(C.endlessAir * 1.5, run.air + tier.air);
     run.log.push({ pid: run.prompt.id, tier: hit.tier, answer: hit.display, pts: tier.pts });
     FX.sfx.hit(hit.tier); vibrate(20);
@@ -646,6 +799,7 @@
     S.endless.runs.push({ score: r.score, cleared: r.cleared, at: Date.now() });
     S.endless.runs = S.endless.runs.slice(-50);
     save();
+    if (r.score >= 500) setTimeout(() => award('endless500'), 1500);
     const tally = {};
     for (const l of r.log) if (l.tier) tally[l.tier] = (tally[l.tier] || 0) + 1;
     screen(`
@@ -699,7 +853,7 @@
       <h3>Depth bands</h3>
       <p>${B.BANDS.map((b) => `<b>${b.name}</b> from ${fmt(b.min)} m`).join(', ')}.</p>
       <h3>Other ways to play</h3>
-      <p><b>Endless</b> gives you one ${C.endlessAir}-second tank. Every answer that counts refills it, rarer ones by more. <b>Practice packs</b> let you replay a single topic as often as you like.</p>
+      <ul class="help-modes">${allModes().map((m) => `<li><b>${esc(m.title)}</b> ${esc(m.how || m.blurb)}</li>`).join('')}</ul>
       <div class="reveal-actions"><button class="btn" data-close>Got it</button></div></div>`);
   }
 
@@ -761,6 +915,10 @@
       <div class="cal-legend">${B.BANDS.map((b) => `<span><i style="background:${bandColor(b.min)}"></i>${b.name}</span>`).join('')}</div>
       <h3 style="font-size:18px;margin-top:22px">Where your answers land</h3>
       <div class="dist">${[...B.ORDER, 'x'].map((k) => `<div class="dist-row ${'tc-' + k}"><span>${k === 'x' ? B.MISS_EMOJI : T[k].emoji}</span><span class="bar"><i style="width:${(st.dist[k] / totalAns) * 100}%;background:var(--tc)"></i></span><span class="num faint">${st.dist[k]}</span></div>`).join('')}</div>
+      <h3 style="font-size:18px;margin-top:22px">Badges <span class="faint num" style="font-weight:400">${Object.keys(S.ach).length} of ${BADGES.length}</span></h3>
+      <div class="badges">${BADGES.map((b) => `<div class="badge ${S.ach[b.id] ? 'got' : ''}" title="${esc(b.how)}"><span>${b.icon}</span><b>${esc(b.name)}</b><small>${esc(b.how)}</small></div>`).join('')}</div>
+      <h3 style="font-size:18px;margin-top:22px">Other modes</h3>
+      <p class="muted">${allModes().filter((m) => m.best && m.best()).map((m) => `${esc(m.title)}: ${esc(m.best())}`).join('. ') || 'Nothing yet. Try Sonar Sweep or Blitz.'}</p>
       <h3 style="font-size:18px;margin-top:22px">Endless</h3>
       <p class="muted">Best ${fmt(S.endless.best || 0)} pts across ${S.endless.runs.length} run${S.endless.runs.length === 1 ? '' : 's'}. Practice dives: ${S.practice.played}.</p>
       <h3 style="font-size:18px;margin-top:22px">Past dives</h3>
@@ -818,7 +976,43 @@
   });
   window.addEventListener('pagehide', save);
 
-  // Expose for testing in the console.
+  /* ---------------- modes registry ---------------- */
+  const BUILTIN = [
+    { id: 'endless', title: 'Endless', blurb: 'One tank of air. Rare answers refill it. Go until you run dry.', how: `starts you with a ${C.endlessAir}-second tank. Every answer that counts refills it, rarer ones by more.`,
+      art: '♾️', start: () => startEndless(), best: () => (S.endless.best ? `Best ${fmt(S.endless.best)} pts` : '') },
+    { id: 'packs', title: 'Practice packs', blurb: 'Pick a topic and dive as often as you like. No leaderboard.', how: 'lets you replay any single topic as often as you like.', art: '🎒', start: () => packs() },
+  ];
+  window.KModes = window.KModes || {};
+  const allModes = () => BUILTIN.map((m) => Object.assign({}, m, { art: (window.KModes.art || {})[m.id] || m.art })).concat(window.KModes.list || []);
+
+  /* ---------------- challenge links ---------------- */
+  let pendingChallenge = null;
+  function readChallenge() {
+    const m = location.hash.match(/^#c=([^&]+)/);
+    if (!m || !window.KModes.challenge) return null;
+    return window.KModes.challenge.decode(m[1]);
+  }
+  function challengeBanner() {
+    if (!pendingChallenge) return '';
+    const c = pendingChallenge;
+    return `<div class="challenge-banner">
+      <span class="cb-icon" aria-hidden="true">🤝</span>
+      <div><b>${esc(c.name)} challenged you.</b><p>${c.score != null ? `They sank to ${fmt(depthOf(c.score))} m on these seven prompts. Can you go deeper?` : 'Seven prompts, picked just for this challenge.'}</p></div>
+      <div class="cb-actions"><button class="btn krill small" id="playChallenge">Accept</button><button class="btn ghost small" id="dismissChallenge">Not now</button></div>
+    </div>`;
+  }
+  function badgeStrip() {
+    const got = BADGES.filter((b) => S.ach[b.id]);
+    if (!got.length) return '';
+    return `<button class="badge-strip" id="badgeStrip" aria-label="Your badges">${got.slice(-8).map((b) => `<span title="${esc(b.name)}">${b.icon}</span>`).join('')}<small>${got.length} of ${BADGES.length} badges</small></button>`;
+  }
+
+  // Shared helpers for js/modes.js
+  window.KApp = {
+    get S() { return S; }, save, screen, toast, esc, fmt, words, letters, closeCall, vibrate, ripple, shake, award, checkNiche, zoneCard,
+    openModal, closeModal, home, stopTimer, setTimer: (id) => { timerId = id; }, ensurePlayer, profileSvg, shareImage, countUp, depthOf, emojiOf,
+    roundsList, today, SITE, nextRound, setRun: (r) => { run = r; }, getRun: () => run, boardRow,
+  };
   window.Krillion = { state: () => S, home };
-  home();
+  document.addEventListener('DOMContentLoaded', () => { pendingChallenge = readChallenge(); home(); });
 })();
