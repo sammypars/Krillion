@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Krillion — the daily dive for rare answers</title>
   <meta name="description" content="Seven prompts a day. Obvious answers barely count; rare ones sink you deeper. How far down can you get?">
-  <meta name="theme-color" content="#0a2a45">
+  <meta name="theme-color" content="#07111f">
   <meta property="og:title" content="Krillion">
   <meta property="og:description" content="Seven prompts a day. Rare answers sink you deeper.">
   <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
@@ -13,6 +13,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
+  <link rel="preload" href="assets/fonts/vt323.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="retro.css">
 </head>
 <body>
   <div class="sea" aria-hidden="true">
@@ -49,7 +51,10 @@
     </nav>
   </header>
 
-  <main id="app" tabindex="-1"></main>
+  <div class="cabinet">
+    <div class="cab-bar"><span class="cab-label" id="cabLabel">DAILY</span><button class="cab-mute" id="muteBtn" type="button">MUTE</button></div>
+    <main id="app" tabindex="-1"></main>
+  </div>
 
   <dialog id="modal" aria-labelledby="modalTitle">
     <div class="modal-inner">

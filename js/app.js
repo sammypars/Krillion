@@ -163,8 +163,16 @@
     $('#toasts').appendChild(el);
     setTimeout(() => el.remove(), ms);
   }
+  const CAB = { practice: 'PRACTICE', endless: 'ENDLESS', sonar: 'SONAR SWEEP', blitz: 'BLITZ', abyss: 'THE ABYSS', party: 'PASS & PLAY', challenge: 'CHALLENGE' };
+  function cabLabel() {
+    const el = document.getElementById('cabLabel'); if (!el) return;
+    const m = run && run.mode;
+    el.textContent = m && CAB[m] ? CAB[m] + (run.cat ? ' · ' + String(run.cat).toUpperCase() : '') : `DAILY · ${today()} UTC`;
+  }
+  function paintMute() { const b = document.getElementById('muteBtn'); if (b) { b.textContent = S.settings.sound ? 'MUTE' : 'UNMUTE'; b.setAttribute('aria-pressed', String(!S.settings.sound)); } }
   function screen(html, cls = '') {
     stopTimer();
+    cabLabel();
     app.innerHTML = `<section class="screen ${cls}">${html}</section>`;
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
@@ -376,22 +384,29 @@
     FX.setDepth(depthOf(rec.score));
     const pips = run.prompts.map((_, j) => {
       const r = rec.results[j];
-      return `<span class="pip ${j === i ? 'now' : ''}" aria-hidden="true">${r ? emojiOf(r) : ''}</span>`;
+      return `<span class="pip ${j === i ? 'now' : ''} ${r ? 't-' + (r.tier || 'x') : ''}" aria-hidden="true"></span>`;
     }).join('');
+    const n = run.prompts.length;
     screen(`
-      <div class="game-top">
-        <div class="pips" aria-label="Prompt ${i + 1} of ${run.prompts.length}">${pips}</div>
-        <div class="score-now"><span id="scoreNow">${fmt(depthOf(rec.score))}</span> m <small>${esc(run.label || (run.mode === 'practice' ? run.cat : 'deep'))}</small></div>
+      <div class="hud">
+        <div class="hud-box"><small>Depth</small><b class="neg" id="scoreNow">${fmt(depthOf(rec.score))}</b></div>
+        <div class="hud-mid"><div class="pips" aria-label="Prompt ${i + 1} of ${n}">${pips}</div><small>Prompt ${i + 1} of ${n}</small></div>
+        <div class="hud-box right"><small>Score</small><b class="pink" id="ptsNow">${fmt(rec.score)}</b></div>
       </div>
       <div id="stage">
-        <p class="prompt-cat">${esc(p.cat)}</p>
-        <h1 class="prompt-q" aria-label="${esc(p.q)}">${words(p.q)}</h1>
-        <div class="tank" id="tank"><div class="tank-fill" id="tankFill"></div></div>
-        <div class="tank-label"><span>Air left</span><b id="timeLeft">${Math.ceil(rec.remaining)}s</b></div>
-        <form class="guess" id="guessForm" autocomplete="off">
-          <input id="guessInput" type="text" placeholder="Type an answer" aria-label="Your answer" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="go">
-          <button class="btn" type="submit">Dive</button>
+        <div class="prompt-card">
+          <small class="pc-label">Prompt ${i + 1} of ${n} <span>· ${esc(p.cat)}</span></small>
+          <h1 class="prompt-q" aria-label="${esc(p.q)}">${words(p.q)}</h1>
+          <p class="pc-sub">rarer answers sink deeper</p>
+        </div>
+        <form class="guess dial-row" id="guessForm" autocomplete="off">
+          <div class="dial" aria-label="Seconds of air left"><svg viewBox="0 0 48 48" aria-hidden="true">
+            <circle class="dial-bg" cx="24" cy="24" r="20"/><circle class="dial-arc" id="dialArc" cx="24" cy="24" r="20" pathLength="100"/>
+            <line class="dial-hand" id="dialHand" x1="24" y1="24" x2="24" y2="8"/></svg><b id="timeLeft">${Math.ceil(rec.remaining)}</b></div>
+          <input id="guessInput" type="text" placeholder="type one answer…" aria-label="Your answer" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="go">
+          <button class="btn dive" type="submit">Dive</button>
         </form>
+        <div class="tank thin" id="tank"><div class="tank-fill" id="tankFill"></div></div>
         <div class="tried" id="tried">${rec.tried.map((t) => `<span>${esc(t)}</span>`).join('')}</div>
         <p class="hint-line">Wrong guesses cost ${C.wrongPenalty} seconds. The first answer that counts ends the prompt.</p>
       </div>`);
@@ -422,7 +437,13 @@
     const frac = rec.remaining / C.roundSeconds;
     f.style.transform = `scaleX(${Math.max(0, frac)})`;
     $('#tank').classList.toggle('low', rec.remaining <= 6);
-    $('#timeLeft').textContent = Math.ceil(rec.remaining) + 's';
+    const arc = $('#dialArc');
+    if (arc) {
+      arc.style.strokeDashoffset = String(100 * (1 - Math.max(0, frac)));
+      $('#dialHand').style.transform = `rotate(${-360 * (1 - Math.max(0, frac))}deg)`;
+      arc.closest('.dial').classList.toggle('low', rec.remaining <= 6);
+    }
+    $('#timeLeft').textContent = Math.ceil(rec.remaining) + (arc ? '' : 's');
   }
 
   function guess(text) {
@@ -483,7 +504,8 @@
     } else { FX.sfx.out(); vibrate([60, 40, 60]); }
     FX.setDepth(depthOf(rec.score));
     $('#scoreNow').textContent = fmt(depthOf(rec.score));
-    const pip = app.querySelectorAll('.pip')[rec.results.length - 1]; if (pip) { pip.textContent = emojiOf(result); pip.classList.add('hit'); }
+    const pn = $('#ptsNow'); if (pn) pn.textContent = fmt(rec.score);
+    const pip = app.querySelectorAll('.pip')[rec.results.length - 1]; if (pip) { pip.classList.remove('now'); pip.classList.add('hit', 't-' + (result.tier || 'x')); }
 
     const last = rec.results.length >= run.prompts.length;
     const tc = hit ? 'tc-' + hit.tier : 'tc-x';
@@ -948,7 +970,7 @@
       <h3 style="font-size:18px;margin-top:22px">Your data</h3>
       <p class="muted" style="font-size:15px">History lives in this browser. Clearing it removes your stats and streak here; leaderboard entries stay.</p>
       <div class="reveal-actions"><button class="btn ghost small" id="wipe">Clear history on this device</button></div>`);
-    $('#sndToggle').onchange = (e) => { S.settings.sound = e.target.checked; FX.sound.on = e.target.checked; save(); if (e.target.checked) FX.sfx.hit('s'); };
+    $('#sndToggle').onchange = (e) => { S.settings.sound = e.target.checked; FX.sound.on = e.target.checked; save(); paintMute(); if (e.target.checked) FX.sfx.hit('s'); };
     $('#renameForm').onsubmit = async (e) => {
       e.preventDefault();
       const v = $('#rn').value.trim();
@@ -1014,5 +1036,7 @@
     roundsList, today, SITE, nextRound, setRun: (r) => { run = r; }, getRun: () => run, boardRow,
   };
   window.Krillion = { state: () => S, home };
+  paintMute();
+  document.getElementById('muteBtn').onclick = () => { S.settings.sound = !S.settings.sound; FX.sound.on = S.settings.sound; save(); paintMute(); if (S.settings.sound) FX.sfx.tick(); };
   document.addEventListener('DOMContentLoaded', () => { pendingChallenge = readChallenge(); home(); });
 })();

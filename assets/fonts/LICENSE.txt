@@ -1,0 +1,1 @@
+VT323 and Silkscreen are licensed under the SIL Open Font License 1.1 (https://openfontlicense.org). Files from the @fontsource npm packages.
